@@ -1,0 +1,4 @@
+The parallelism challenge of the 2015 edition of the CS Games was developed by:
+
+Jean-Pierre Deschamps	<jean-pierre.deschamps@funteam.ca>
+Félix-Antoine Ouellet	<faouellet@gmail.com>
