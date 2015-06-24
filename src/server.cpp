@@ -755,12 +755,13 @@ void readRLE(string name, ProblemContainer &problems) {
 }
 
 int main(int argc, char** argv) {
-  readMaze(argc < 1 ? argv[1] : "maze_small.bin", problems);
-  readSudoku(argc < 2 ? argv[2] : "sudoku_small.bin", problems);
-  readArray(argc < 3 ? argv[3] : "array_small.bin", problems);
-  readPassword(argc < 4 ? argv[4] : "password_small.bin", problems);
-  readTree(argc < 5 ? argv[5] : "tree_small.bin", problems);
-  readRLE(argc < 6 ? argv[6] : "RLE_small.bin", problems);
+  cout << argv[1] << endl;
+  readMaze(argc > 1 ? argv[1] : "maze_small.bin", problems);
+  readSudoku(argc > 2 ? argv[2] : "sudoku_small.bin", problems);
+  readArray(argc > 3 ? argv[3] : "array_small.bin", problems);
+  readPassword(argc > 4 ? argv[4] : "password_small.bin", problems);
+  readTree(argc > 5 ? argv[5] : "tree_small.bin", problems);
+  readRLE(argc > 6 ? argv[6] : "RLE_small.bin", problems);
 
   cout << problems.getGlobalSize() << " problems loaded" << endl;
 
