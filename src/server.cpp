@@ -508,7 +508,7 @@ private:
   }
 
   void onDataTimerExpired(const boost::system::error_code &ec,
-                          boost::asio::deadline_timer *timer) {
+                          boost::asio::deadline_timer *) {
     if (ec == boost::asio::error::operation_aborted) { // 3.
     {
       cout << "Abort" << endl;
@@ -754,15 +754,13 @@ void readRLE(string name, ProblemContainer &problems) {
   }
 }
 
-int main() {
-  // e1.seed(1);
-
-  readMaze("maze_small.bin", problems);
-  readSudoku("sudoku_small.bin", problems);
-  readArray("array_small.bin", problems);
-  readPassword("password_small.bin", problems);
-  readTree("tree_small.bin", problems);
-  readRLE("RLE_small.bin", problems);
+int main(int argc, char** argv) {
+  readMaze(argc < 1 ? argv[1] : "maze_small.bin", problems);
+  readSudoku(argc < 2 ? argv[2] : "sudoku_small.bin", problems);
+  readArray(argc < 3 ? argv[3] : "array_small.bin", problems);
+  readPassword(argc < 4 ? argv[4] : "password_small.bin", problems);
+  readTree(argc < 5 ? argv[5] : "tree_small.bin", problems);
+  readRLE(argc < 6 ? argv[6] : "RLE_small.bin", problems);
 
   cout << problems.getGlobalSize() << " problems loaded" << endl;
 
