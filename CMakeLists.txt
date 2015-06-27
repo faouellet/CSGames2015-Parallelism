@@ -10,7 +10,11 @@ endif()
 message(${PROJECT_SOURCE_DIR})
 message(${CMAKE_BINARY_DIR})
 
-file(COPY ${PROJECT_SOURCE_DIR}/data DESTINATION ${CMAKE_BINARY_DIR})
-file(COPY ${PROJECT_SOURCE_DIR}/start_server.sh DESTINATION ${CMAKE_BINARY_DIR})
+if(WIN32)
+    message("TODO")
+else()
+    file(COPY ${PROJECT_SOURCE_DIR}/data DESTINATION ${CMAKE_BINARY_DIR})
+    file(COPY ${PROJECT_SOURCE_DIR}/start_comp.sh DESTINATION ${CMAKE_BINARY_DIR})
+endif()
 
 cmake_policy(SET CMP0015 NEW)
