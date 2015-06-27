@@ -7,9 +7,6 @@ if(NOT WIN32)
 	set(CMAKE_CXX_FLAGS "-std=c++11 -pthread -g" CACHE STRING "" FORCE)
 endif()
 
-message(${PROJECT_SOURCE_DIR})
-message(${CMAKE_BINARY_DIR})
-
 if(WIN32)
     message("TODO")
 else()
