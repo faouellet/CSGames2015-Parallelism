@@ -14,5 +14,5 @@ add_executable(Client client.cpp)
 target_link_libraries(Client ${Boost_LIBRARIES})
 	
 # Server
-add_executable(Server server.cpp base64.cpp base64.h) 
+add_executable(Server server.cpp base64.cpp base64.h strings.h) 
 target_link_libraries(Server ${Boost_LIBRARIES})
