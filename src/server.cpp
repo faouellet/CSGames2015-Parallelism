@@ -7,11 +7,13 @@
 #include <boost/bind.hpp>
 #include <boost/enable_shared_from_this.hpp>
 #include <boost/shared_ptr.hpp>
+#include <boost/optional.hpp>
 
 #include <atomic>
 #include <chrono>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <numeric>
 #include <string>
 #include <random>
@@ -20,80 +22,101 @@
 using namespace std;
 using boost::asio::ip::tcp;
 
-class ProblemContainer {
+namespace
+{
+    template <class T>
+    struct ContainerTraits
+    {
+        using iterator = typename T::iterator;
+
+        static size_t size(const T& t) { return t.size(); }
+        static iterator begin(const T& t) { return begin(t); }
+        static iterator end(const T& t) { return end(t); }
+    };
+
+    template <class T1, class T2>
+    struct ContainerTraits<std::pair<T1, T2>>
+    {
+        using iterator = typename T2::iterator;
+
+        static size_t size(const pair<T1, T2>& p) { return p.second.size(); }
+        static iterator begin(const pair<T1, T2>& p) { return begin(t); }
+        static iterator end(const pair<T1, T2>& p) { return end(t); }
+    };
+}
+
+class BaseProblem
+{
 public:
-  void addMaze(pair<bool, vector<int>> maze) {
-    mazeProblems.push_back(maze);
-    ++mazeSize;
-    ++globalSize;
-  }
-  void addSudoku(pair<bool, vector<int>> sudoku) {
-    sudokuProblems.push_back(sudoku);
-    ++sudokuSize;
-    ++globalSize;
-  }
-  void addArray(pair<bool, pair<int, vector<int>>> array) {
-    arrayProblems.push_back(array);
-    ++arraySize;
-    ++globalSize;
-  }
-  void addTree(pair<bool, vector<int>> array) {
-    treeProblems.push_back(array);
-    ++treeSize;
-    ++globalSize;
-  }
-  void addPassword(pair<bool, string> array) {
-    passwordProblems.push_back(array);
-    ++passwordSize;
-    ++globalSize;
-  }
-  void addRLE(pair<bool, pair<int, string>> array) {
-    RLEProblems.push_back(array);
-    ++rleSize;
-    ++globalSize;
-  }
+    BaseProblem() { }
+    virtual ~BaseProblem() { }
 
-  pair<bool, vector<int>> getMaze(int index) { return mazeProblems[index]; }
-  pair<bool, vector<int>> getSudoku(int index) { return sudokuProblems[index]; }
-  pair<bool, pair<int, vector<int>>> getArray(int index) {
-    return arrayProblems[index];
-  }
-  pair<bool, vector<int>> getTree(int index) { return treeProblems[index]; }
-  pair<bool, string> getPassword(int index) { return passwordProblems[index]; }
-  pair<bool, pair<int, string>> getRLE(int index) { return RLEProblems[index]; }
+public:
+    virtual bool getAnswer() const = 0;
+    virtual boost::optional<size_t> getExpectedValue() const = 0;
+    virtual size_t size() const = 0;
+};
 
-  int getSize(int index) {
-    return index == 0 ? mazeSize : index == 1
-                                       ? sudokuSize
-                                       : index == 2
-                                             ? arraySize
-                                             : index == 3
-                                                   ? treeSize
-                                                   : index == 4 ? passwordSize
-                                                                : rleSize;
-  }
-  int getGlobalSize() { return globalSize; }
+template <class T>
+class ConcreteProblem : BaseProblem
+{
+public:
+    using iterator = typename ContainerTraits<T>::iterator;
+
+public:
+    ConcreteProblem(bool answer, T&& t) : mAnswer{ answer }, mData { t } { }
+    virtual ~ConcreteProblem() { }
+
+public:
+    bool getAnswer() const override { return mAnswer; }
+    boost::optional<size_t> getExpectedValue() const override { return mExpected; }
+
+    size_t size() const override { return ContainerTraits<T>::size(data); }
+
+    iterator begin() const { return ContainerTraits<T>::begin(data); }
+    iterator end() const { return ContainerTraits<T>::end(data); }
 
 private:
-  vector<pair<bool, vector<int>>> mazeProblems;             // +4
-  vector<pair<bool, vector<int>>> sudokuProblems;           // +4
-  vector<pair<bool, pair<int, vector<int>>>> arrayProblems; // +2
-  vector<pair<bool, vector<int>>> treeProblems;             // +4
-  vector<pair<bool, string>> passwordProblems;              // +2
-  vector<pair<bool, pair<int, string>>> RLEProblems;        // +2
-  int mazeSize;
-  int sudokuSize;
-  int arraySize;
-  int treeSize;
-  int passwordSize;
-  int rleSize;
+    bool mAnswer;
+    boost::optional<size_t> mExpected;
+    T mData;
+};
 
-  int globalSize;
+enum ProblemType
+{
+    MAZE,
+    SUDOKU,
+    TREE,
+    ARRAY,
+    PASSWORD,
+    RLE
+};
+
+class ProblemContainer {
+public:
+    template <class T>
+    void addProblem(ProblemType type, bool answer, T&& data)
+    {
+        mProblems[type].emplace_back(answer, data);
+        ++mGlobalSize;
+    }
+    
+  BaseProblem* getProblem(ProblemType type, int index) { return mProblems[type][index].get(); }
+
+  size_t getProblemSize(ProblemType type) {
+      return mProblems[type].size();
+  }
+
+  size_t getGlobalSize() const { return mGlobalSize; }
+
+private:
+  vector<vector<unique_ptr<BaseProblem>>> mProblems;
+  size_t mGlobalSize;
 };
 
 atomic<int> score;
 ProblemContainer problems;
-boost::array<bool, 4> expectedResult;
+boost::array<bool, 4> answers;
 vector<int> problemIndex;
 atomic<int> problemScore;
 atomic<bool> expired;
@@ -151,7 +174,7 @@ private:
                                  shared_from_this(),
                                  boost::asio::placeholders::error, &Timer));
     for (int i = 0; i < 4; ++i) {
-      if (ReadMessage[i] != expectedResult[i]) {
+      if (ReadMessage[i] != answers[i]) {
         score -= problemScore;
         cout << "YOU'RE WRONG !!!! -" << problemScore << endl;
         sendData();
@@ -179,97 +202,31 @@ private:
     do {
       next = uniform_dist(e1);
       index = problemIndex[next];
-    } while (index >= problems.getSize(next));
-    int size;
+    } while (index >= problems.getProblemSize(static_cast<ProblemType>(next)));
+    size_t dataSize;
     vector<boost::asio::const_buffer> bufs;
 
-    bufs.push_back(boost::asio::buffer(&next, sizeof next));
-    switch (next) {
-    // MAZE
-    case 0:
-      problemScore = 2;
-      for (int i = index; i < index + 4; ++i) {
-        auto problem = problems.getMaze(i);
-        size = problem.second.size();
-        bufs.push_back(boost::asio::buffer(&size, sizeof size));
-        bufs.push_back(
-            boost::asio::buffer(reinterpret_cast<const char *>(&problem.second),
-                                problem.second.size() * sizeof(int)));
-        expectedResult[i % 4] = problem.first;
-      }
-      break;
-    // SUDOKU
-    case 1:
-      problemScore = 2;
-      for (int i = index; i < index + 4; ++i) {
-        auto problem = problems.getSudoku(i);
-        size = problem.second.size();
-        bufs.push_back(boost::asio::buffer(&size, sizeof size));
-        bufs.push_back(
-            boost::asio::buffer(reinterpret_cast<const char *>(&problem.second),
-                                problem.second.size() * sizeof(int)));
-        expectedResult[i % 4] = problem.first;
-      }
-      break;
-    // ARRAY
-    case 2:
-      problemScore = 1;
-      for (int i = index; i < index + 4; ++i) {
-        auto problem = problems.getArray(i);
-        size = problem.second.first;
-        bufs.push_back(boost::asio::buffer(&size, sizeof size));
-        size = problem.second.second.size();
-        bufs.push_back(boost::asio::buffer(&size, sizeof size));
-        bufs.push_back(boost::asio::buffer(
-            reinterpret_cast<const char *>(&problem.second.second),
-            problem.second.second.size() * sizeof(int)));
-        expectedResult[i % 4] = problem.first;
-      }
-      break;
-    // SYM TREE
-    case 3:
-      problemScore = 2;
-      for (int i = index; i < index + 4; ++i) {
-        auto problem = problems.getTree(i);
-        size = problem.second.size();
-        bufs.push_back(boost::asio::buffer(&size, sizeof size));
-        bufs.push_back(
-            boost::asio::buffer(reinterpret_cast<const char *>(&problem.second),
-                                problem.second.size() * sizeof(int)));
-        expectedResult[i % 4] = problem.first;
-      }
-      break;
-    // PASSWORD
-    case 4:
-      problemScore = 1;
-      for (int i = index; i < index + 4; ++i) {
-        auto problem = problems.getPassword(i);
-        size = problem.second.size();
-        bufs.push_back(boost::asio::buffer(&size, sizeof size));
-        bufs.push_back(
-            boost::asio::buffer(reinterpret_cast<const char *>(&problem.second),
-                                problem.second.size() * sizeof(int)));
-        expectedResult[i % 4] = problem.first;
-      }
-      break;
-    // RLE
-    case 5:
-      problemScore = 1;
-      for (int i = index; i < index + 4; ++i) {
-        auto problem = problems.getRLE(i);
-        size = problem.second.first;
-        bufs.push_back(boost::asio::buffer(&size, sizeof size));
-        size = problem.second.second.size();
-        bufs.push_back(boost::asio::buffer(&size, sizeof size));
-        bufs.push_back(boost::asio::buffer(
-            reinterpret_cast<const char *>(&problem.second.second),
-            problem.second.second.size() * sizeof(int)));
-        expectedResult[i % 4] = problem.first;
-      }
-      break;
-    default:
-      break;
+    bufs.push_back(boost::asio::buffer(&next, sizeof(next)));
+    
+    problemScore = next < 3 ? 2 : 1;
+
+    for (int i = index; i < index + 4; ++i) {
+    auto problem = problems.getProblem(static_cast<ProblemType>(next), i);
+
+    boost::optional<size_t> expectedValue = problem->getExpectedValue();
+    if (expectedValue)
+    {
+        dataSize = expectedValue.get();
+        bufs.push_back(boost::asio::buffer(&dataSize, sizeof(dataSize)));
     }
+
+    dataSize = problem->size();
+    bufs.push_back(boost::asio::buffer(&dataSize, sizeof(dataSize)));
+    bufs.push_back(
+        boost::asio::buffer(reinterpret_cast<const char *>(&problem.second),
+            dataSize * sizeof(int)));
+    answers[i % 4] = problem->getAnswer();
+
     // cout << "Problem type : " << next << "\tscore : " << problemScore <<
     // endl;
     problemIndex[next] += 4;
