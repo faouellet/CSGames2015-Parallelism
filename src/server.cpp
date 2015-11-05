@@ -22,90 +22,67 @@
 using namespace std;
 using boost::asio::ip::tcp;
 
-namespace
-{
-    template <class T>
-    struct ContainerTraits
-    {
-        using iterator = typename T::iterator;
+enum ProblemType {
+  MAZE,
+  SUDOKU,
+  TREE,
+  ARRAY,
+  PASSWORD,
+  RLE,
 
-        static size_t size(const T& t) { return t.size(); }
-        static iterator begin(const T& t) { return begin(t); }
-        static iterator end(const T& t) { return end(t); }
-    };
-
-    template <class T1, class T2>
-    struct ContainerTraits<std::pair<T1, T2>>
-    {
-        using iterator = typename T2::iterator;
-
-        static size_t size(const pair<T1, T2>& p) { return p.second.size(); }
-        static iterator begin(const pair<T1, T2>& p) { return begin(t); }
-        static iterator end(const pair<T1, T2>& p) { return end(t); }
-    };
-}
-
-class BaseProblem
-{
-public:
-    BaseProblem() { }
-    virtual ~BaseProblem() { }
-
-public:
-    virtual bool getAnswer() const = 0;
-    virtual boost::optional<size_t> getExpectedValue() const = 0;
-    virtual size_t size() const = 0;
+  NB_ELEMS
 };
 
-template <class T>
-class ConcreteProblem : BaseProblem
-{
+class BaseProblem {
 public:
-    using iterator = typename ContainerTraits<T>::iterator;
-
-public:
-    ConcreteProblem(bool answer, T&& t) : mAnswer{ answer }, mData { t } { }
-    virtual ~ConcreteProblem() { }
+  BaseProblem() {}
+  virtual ~BaseProblem() {}
 
 public:
-    bool getAnswer() const override { return mAnswer; }
-    boost::optional<size_t> getExpectedValue() const override { return mExpected; }
+  virtual bool getAnswer() const = 0;
+  virtual boost::optional<size_t> getExpectedValue() const = 0;
+  virtual size_t size() const = 0;
 
-    size_t size() const override { return ContainerTraits<T>::size(data); }
+  template <class T> const vector<T> &getData() const {
+    return dynamic_cast<const ConcreteProblem<T> &>(*this).getData();
+  }
+};
 
-    iterator begin() const { return ContainerTraits<T>::begin(data); }
-    iterator end() const { return ContainerTraits<T>::end(data); }
+template <class T> class ConcreteProblem : BaseProblem {
+public:
+  ConcreteProblem(bool answer, vector<T> &&data, boost::optional<int> expectedValue)
+      : mAnswer{ answer }, mData{ data }, mExpected{ expectedValue } {}
+  virtual ~ConcreteProblem() {}
+
+public:
+  bool getAnswer() const override { return mAnswer; }
+  boost::optional<size_t> getExpectedValue() const override {
+    return mExpected;
+  }
+  size_t size() const override { return mDdata.size(); }
+  template <class T> const vector<T> &getData() const { return mData; }
 
 private:
-    bool mAnswer;
-    boost::optional<size_t> mExpected;
-    T mData;
-};
-
-enum ProblemType
-{
-    MAZE,
-    SUDOKU,
-    TREE,
-    ARRAY,
-    PASSWORD,
-    RLE
+  bool mAnswer;
+  boost::optional<size_t> mExpected;
+  vector<T> mData;
 };
 
 class ProblemContainer {
 public:
-    template <class T>
-    void addProblem(ProblemType type, bool answer, T&& data)
-    {
-        mProblems[type].emplace_back(answer, data);
-        ++mGlobalSize;
-    }
-    
-  BaseProblem* getProblem(ProblemType type, int index) { return mProblems[type][index].get(); }
+  ProblemContainer() { mProblems.reserve(ProblemType::NB_ELEMS); }
 
-  size_t getProblemSize(ProblemType type) {
-      return mProblems[type].size();
+  template <class T>
+  void addProblem(ProblemType type, bool answer, vector<T> &&data) {
+    mProblems[type].emplace_back(answer, data);
+    ++mGlobalSize;
   }
+
+  BaseProblem *getProblem(ProblemType type, int index) {
+    return mProblems[type][index].get();
+  }
+
+  size_t getProblemSize(ProblemType type) { return mProblems[type].size(); }
 
   size_t getGlobalSize() const { return mGlobalSize; }
 
@@ -117,13 +94,12 @@ private:
 atomic<int> score;
 ProblemContainer problems;
 boost::array<bool, 4> answers;
-vector<int> problemIndex;
 atomic<int> problemScore;
 atomic<bool> expired;
 
 std::random_device rd;
 std::default_random_engine e1(rd());
-std::uniform_int_distribution<int> uniform_dist(0, 5);
+std::uniform_int_distribution<int> uniform_dist(0, ProblemType::NB_ELEMS);
 std::uniform_int_distribution<int> uniform_dist2(0, 13);
 std::bernoulli_distribution bool_dist1(0.2);
 std::bernoulli_distribution bool_dist2(0.01);
@@ -136,7 +112,7 @@ public:
     return pointer(new TCPConnection(IOService));
   }
 
-  tcp::socket &socket() { return Socket; }
+  tcp::socket &socket() { return mSocket; }
 
   void start() {
     sendData();
@@ -145,15 +121,15 @@ public:
 
 private:
   TCPConnection(boost::asio::io_service &IOService)
-      : Socket(IOService), Timer(IOService) {}
+      : mSocket(IOService), mTimer(IOService) {}
 
   void stop() {
-    Socket.close();
-    Timer.cancel();
+    mSocket.close();
+    mTimer.cancel();
   }
 
   void readData() {
-    boost::asio::async_read(Socket, boost::asio::buffer(ReadMessage),
+    boost::asio::async_read(mSocket, boost::asio::buffer(mReadMessage),
                             boost::bind(&TCPConnection::onDataReceived,
                                         shared_from_this(),
                                         boost::asio::placeholders::error));
@@ -162,19 +138,21 @@ private:
   void onDataReceived(const boost::system::error_code &ec) {
     if (ec) {
       cout << "I f****** quit !!!" << endl
-           << "Oh btw, network error, client crashed, connection reset, armagueddon, 9/11 or somethin'...." << endl;
+           << "Oh btw, network error, client crashed, connection reset, "
+              "armagueddon, 9/11 or somethin'...."
+           << endl;
       stop();
       // throw exception("bye bye !");
       throw exception();
       return;
     }
 
-    Timer.expires_from_now(boost::posix_time::seconds(5));
-    Timer.async_wait(boost::bind(&TCPConnection::onDataTimerExpired,
-                                 shared_from_this(),
-                                 boost::asio::placeholders::error, &Timer));
+    mTimer.expires_from_now(boost::posix_time::seconds(5));
+    mTimer.async_wait(boost::bind(&TCPConnection::onDataTimerExpired,
+                                  shared_from_this(),
+                                  boost::asio::placeholders::error, &mTimer));
     for (int i = 0; i < 4; ++i) {
-      if (ReadMessage[i] != answers[i]) {
+      if (mReadMessage[i] != answers[i]) {
         score -= problemScore;
         cout << "YOU'RE WRONG !!!! -" << problemScore << endl;
         sendData();
@@ -189,64 +167,55 @@ private:
   }
 
   void sendData() {
-    int next;
-    int index;
-    // BREAK
-    if (std::accumulate(problemIndex.begin(), problemIndex.end(), 0) >=
-        problems.getGlobalSize()) {
-      cout << "bye bye !" << endl;
-      stop();
-      // throw exception("bye bye !");
-      throw exception();
-    }
-    do {
-      next = uniform_dist(e1);
-      index = problemIndex[next];
-    } while (index >= problems.getProblemSize(static_cast<ProblemType>(next)));
     size_t dataSize;
     vector<boost::asio::const_buffer> bufs;
 
+    int next = uniform_dist(e1);
     bufs.push_back(boost::asio::buffer(&next, sizeof(next)));
-    
     problemScore = next < 3 ? 2 : 1;
+    std::uniform_int_distribution<int> problemIdxDist(
+        0, problems.getProblemSize(static_cast<ProblemType>(next)));
 
-    for (int i = index; i < index + 4; ++i) {
-    auto problem = problems.getProblem(static_cast<ProblemType>(next), i);
+    for (int i = 0; i < 4; ++i) {
+      auto problem = problems.getProblem(static_cast<ProblemType>(next),
+                                         problemIdxDist(e1));
 
-    boost::optional<size_t> expectedValue = problem->getExpectedValue();
-    if (expectedValue)
-    {
+      boost::optional<size_t> expectedValue = problem->getExpectedValue();
+      if (expectedValue) {
         dataSize = expectedValue.get();
         bufs.push_back(boost::asio::buffer(&dataSize, sizeof(dataSize)));
-    }
+      }
 
-    dataSize = problem->size();
-    bufs.push_back(boost::asio::buffer(&dataSize, sizeof(dataSize)));
-    bufs.push_back(
-        boost::asio::buffer(reinterpret_cast<const char *>(&problem.second),
+      dataSize = problem->size();
+      bufs.push_back(boost::asio::buffer(&dataSize, sizeof(dataSize)));
+
+      if (next < 3) {
+        bufs.push_back(boost::asio::buffer(
+            reinterpret_cast<const char *>(&problem->getData<int>()),
             dataSize * sizeof(int)));
-    answers[i % 4] = problem->getAnswer();
+      } else {
+        bufs.push_back(boost::asio::buffer(
+            reinterpret_cast<const char *>(&problem->getData<char>()),
+            dataSize * sizeof(char)));
+      }
+      answers[i % 4] = problem->getAnswer();
 
-    // cout << "Problem type : " << next << "\tscore : " << problemScore <<
-    // endl;
-    problemIndex[next] += 4;
+      boost::asio::async_write(
+          mSocket, bufs,
+          boost::bind(&TCPConnection::handleWrite, shared_from_this(),
+                      boost::asio::placeholders::error,
+                      boost::asio::placeholders::bytes_transferred));
 
-    boost::asio::async_write(
-        Socket, bufs,
-        boost::bind(&TCPConnection::handleWrite, shared_from_this(),
-                    boost::asio::placeholders::error,
-                    boost::asio::placeholders::bytes_transferred));
-
-    Timer.expires_from_now(boost::posix_time::seconds(5));
-    Timer.async_wait(boost::bind(&TCPConnection::onDataTimerExpired,
-                                 shared_from_this(),
-                                 boost::asio::placeholders::error, &Timer));
+      mTimer.expires_from_now(boost::posix_time::seconds(5));
+      mTimer.async_wait(boost::bind(&TCPConnection::onDataTimerExpired,
+                                    shared_from_this(),
+                                    boost::asio::placeholders::error, &mTimer));
+    }
   }
 
   void onDataTimerExpired(const boost::system::error_code &ec,
                           boost::asio::deadline_timer *) {
-    if (ec == boost::asio::error::operation_aborted) { // 3.
-    {
+    if (ec == boost::asio::error::operation_aborted) {
       cout << "Abort" << endl;
       return;
     }
@@ -254,7 +223,6 @@ private:
     cout << "Awww.... too slow -" << problemScore << endl;
     score -= problemScore;
     sendData();
-	}
   }
 
   void handleWrite(const boost::system::error_code & /*error*/,
@@ -263,27 +231,27 @@ private:
   }
 
 private:
-  tcp::socket Socket;
-  boost::array<bool, 4> ReadMessage;
-  boost::asio::deadline_timer Timer;
+  tcp::socket mSocket;
+  boost::array<bool, 4> mReadMessage;
+  boost::asio::deadline_timer mTimer;
 };
 
 class TCPServer {
 public:
   TCPServer(boost::asio::io_service &IOService)
-      : Acceptor(IOService, tcp::endpoint(tcp::v4(), 22022)) {
+      : mAcceptor(IOService, tcp::endpoint(tcp::v4(), 22022)) {
     startAccept();
   }
 
 private:
   void startAccept() {
     TCPConnection::pointer NewConnection =
-        TCPConnection::create(Acceptor.get_io_service());
+        TCPConnection::create(mAcceptor.get_io_service());
 
-    Acceptor.async_accept(NewConnection->socket(),
-                          boost::bind(&TCPServer::handleAccept, this,
-                                      NewConnection,
-                                      boost::asio::placeholders::error));
+    mAcceptor.async_accept(NewConnection->socket(),
+                           boost::bind(&TCPServer::handleAccept, this,
+                                       NewConnection,
+                                       boost::asio::placeholders::error));
   }
 
   void handleAccept(TCPConnection::pointer NewConnection,
@@ -296,219 +264,68 @@ private:
     startAccept();
   }
 
-  tcp::acceptor Acceptor;
+private:
+  tcp::acceptor mAcceptor;
 };
 
-void readMaze(string name, ProblemContainer &problems) {
+template <class T>
+void readProblem(const string &name, ProblemContainer &problems) {
   ifstream file(name, ios::in | ios::binary);
 
   file.seekg(0, file.end);
   int length = file.tellg();
   file.seekg(0, file.beg);
-  // Read Mazes
+  T tempDataType;
+  int tempInt;
+  boost::optional<int> expectedValue = boost::none;
+
+  // Read problem set
   while (length > 0) {
     // Read the flag
     unsigned char flag = file.get();
     --length;
-    // Read the 4 mazes
+    // Read the 4 problems
     for (int i = 0; i < 4; ++i) {
-      // Read single maze size
-      int size;
-      file.read((char *)&size, sizeof size);
-      length -= sizeof size;
-      // Read the whole maze
-      vector<int> maze;
-      maze.reserve(size);
-      for (int j = 0; j < size; ++j) {
-        int value;
-        file.read((char *)&value, sizeof(value));
-        length -= sizeof value;
-        maze.push_back(value);
+      // Read single problem size
+      file.read((char *)&tempInt, sizeof(tempInt));
+      length -= sizeof(tempInt);
+
+      // Read the expected value if the problem uses one
+      if (flag > 3) {
+        file.read((char *)&tempInt, sizeof(tempInt));
+        length -= sizeof(tempInt);
+        expectedValue = tempInt;
       }
-      problems.addMaze(make_pair(flag & (1 << i), maze));
-    }
-  }
-}
 
-void readSudoku(string name, ProblemContainer &problems) {
-  ifstream file(name, ios::in | ios::binary);
-
-  file.seekg(0, file.end);
-  int length = file.tellg();
-  file.seekg(0, file.beg);
-  // Read Mazes
-  while (length > 0) {
-    // Read the flag
-    unsigned char flag = file.get();
-    --length;
-    // Read the 4 mazes
-    for (int i = 0; i < 4; ++i) {
-      // Read single maze size
-      int size;
-      file.read((char *)&size, sizeof size);
-      length -= sizeof size;
-      // Read the whole maze
-      vector<int> sudoku;
-      sudoku.reserve(size);
+      // Read the problem data
+      vector<T> problemData;
+      maze.reserve(tempInt);
       for (int j = 0; j < size; ++j) {
-        int value;
-        file.read((char *)&value, sizeof(value));
-        length -= sizeof value;
-        sudoku.push_back(value);
+        file.read((char *)&tempDataType, sizeof(tempDataType));
+        length -= sizeof(tempDataType);
+        problemData.push_back(tempDataType);
       }
-      problems.addSudoku(make_pair(flag & (1 << i), sudoku));
+      problems.addProblem(flag, flag & (1 << i), problemData, expectedValue);
     }
   }
 }
 
-void readArray(string name, ProblemContainer &problems) {
-  ifstream file(name, ios::in | ios::binary);
-
-  file.seekg(0, file.end);
-  int length = file.tellg();
-  file.seekg(0, file.beg);
-  // Read Mazes
-  while (length > 0) {
-    // Read the flag
-    unsigned char flag = file.get();
-    --length;
-    // Read the 4 mazes
-    for (int i = 0; i < 4; ++i) {
-      // Read single maze size
-      int size;
-      file.read((char *)&size, sizeof size);
-      length -= sizeof size;
-      // Read the whole maze
-      pair<int, vector<int>> array;
-      array.second.reserve(size - 1);
-      for (int j = 0; j < size; ++j) {
-        int value;
-        file.read((char *)&value, sizeof(value));
-        length -= sizeof value;
-        if (j == 0)
-          array.first = value;
-        else
-          array.second.push_back(value);
-      }
-      problems.addArray(make_pair(flag & (1 << i), array));
-    }
-  }
-}
-
-void readTree(string name, ProblemContainer &problems) {
-  ifstream file(name, ios::in | ios::binary);
-
-  file.seekg(0, file.end);
-  int length = file.tellg();
-  file.seekg(0, file.beg);
-  // Read Mazes
-  while (length > 0) {
-    // Read the flag
-    unsigned char flag = file.get();
-    --length;
-    // Read the 4 mazes
-    for (int i = 0; i < 4; ++i) {
-      // Read single maze size
-      int size;
-      file.read((char *)&size, sizeof size);
-      length -= sizeof size;
-      // Read the whole maze
-      vector<int> array;
-      array.reserve(size);
-      for (int j = 0; j < size; ++j) {
-        int value;
-        file.read((char *)&value, sizeof(value));
-        length -= sizeof value;
-        array.push_back(value);
-      }
-      problems.addTree(make_pair(flag & (1 << i), array));
-    }
-  }
-}
-
-void readPassword(string name, ProblemContainer &problems) {
-  ifstream file(name, ios::in | ios::binary);
-
-  file.seekg(0, file.end);
-  int length = file.tellg();
-  file.seekg(0, file.beg);
-  // Read Mazes
-  while (length > 0) {
-    // Read the flag
-    unsigned char flag = file.get();
-    --length;
-    // Read the 4 mazes
-    for (int i = 0; i < 4; ++i) {
-      // Read single maze size
-      int size;
-      file.read((char *)&size, sizeof size);
-      length -= sizeof size;
-      // Read the whole maze
-      char *buffer = new char[size];
-      file.read(buffer, size);
-      length -= size;
-
-      string value(buffer);
-      value.resize(size);
-      problems.addPassword(make_pair(flag & (1 << i), value));
-      delete[] buffer;
-    }
-  }
-}
-
-void readRLE(string name, ProblemContainer &problems) {
-  ifstream file(name, ios::in | ios::binary);
-
-  file.seekg(0, file.end);
-  int length = file.tellg();
-  file.seekg(0, file.beg);
-  // Read Mazes
-  while (length > 0) {
-    // Read the flag
-    unsigned char flag = file.get();
-    --length;
-
-    int answer;
-    file.read((char *)&answer, sizeof answer);
-    length -= sizeof answer;
-    // Read the 4 mazes
-    for (int i = 0; i < 4; ++i) {
-      // Read single maze size
-      int size;
-      file.read((char *)&size, sizeof size);
-      length -= sizeof size;
-      // Read the whole maze
-      char *buffer = new char[size];
-      file.read(buffer, size);
-      length -= size;
-
-      string value(buffer);
-      value.resize(size);
-      problems.addRLE(make_pair(flag & (1 << i), make_pair(answer, value)));
-      delete[] buffer;
-    }
-  }
-}
-
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   cout << argv[1] << endl;
-  readMaze(argc > 1 ? argv[1] : "maze_small.bin", problems);
-  readSudoku(argc > 2 ? argv[2] : "sudoku_small.bin", problems);
-  readArray(argc > 3 ? argv[3] : "array_small.bin", problems);
-  readPassword(argc > 4 ? argv[4] : "password_small.bin", problems);
-  readTree(argc > 5 ? argv[5] : "tree_small.bin", problems);
-  readRLE(argc > 6 ? argv[6] : "RLE_small.bin", problems);
+  readProblem<int>(argc > 1 ? argv[1] : "maze_small.bin", problems);
+  readProblem<int>(argc > 2 ? argv[2] : "sudoku_small.bin", problems);
+  readProblem<int>(argc > 3 ? argv[3] : "array_small.bin", problems);
+  readProblem<char>(argc > 4 ? argv[4] : "password_small.bin", problems);
+  readProblem<int>(argc > 5 ? argv[5] : "tree_small.bin", problems);
+  readProblem<char>(argc > 6 ? argv[6] : "RLE_small.bin", problems);
 
   cout << problems.getGlobalSize() << " problems loaded" << endl;
-
-  problemIndex.resize(6);
 
   try {
     boost::asio::io_service IOService;
     TCPServer Server(IOService);
     if (bool_dist2(e1)) {
-      std::cout << base64_decode(not_welcome) << std::endl
-                << std::endl;
+      std::cout << base64_decode(not_welcome) << std::endl << std::endl;
       for (;;) {
         for (int t = 0; t < 5; ++t) {
           std::cout << "0xD ";
