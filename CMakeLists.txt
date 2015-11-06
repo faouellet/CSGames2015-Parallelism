@@ -2,7 +2,7 @@ cmake_minimum_required (VERSION 3.0)
 project (CSGames) 
 
 if(NOT WIN32)
-	set(CMAKE_CXX_FLAGS "-std=c++11 -pthread -g" CACHE STRING "" FORCE)
+	set(CMAKE_CXX_FLAGS "-std=c++14 -pthread -g" CACHE STRING "" FORCE)
 endif()
 
 if(WIN32)
