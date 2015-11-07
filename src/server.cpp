@@ -35,32 +35,36 @@ enum ProblemType {
 
 class BaseProblem {
 public:
-  BaseProblem() {}
   virtual ~BaseProblem() {}
 
 public:
+  template <class T> void init(bool answer, vector<T> &&data, const boost::optional<int>& expectedValue);
+
   virtual bool getAnswer() const = 0;
   virtual boost::optional<size_t> getExpectedValue() const = 0;
   virtual size_t size() const = 0;
 
-  template <class T> const vector<T> &getData() const {
-    return dynamic_cast<const ConcreteProblem<T> &>(*this).getData();
-  }
+  template <class T> const vector<T> &getData() const;
 };
 
-template <class T> class ConcreteProblem : BaseProblem {
+template <class T> class ConcreteProblem : public BaseProblem {
 public:
-  ConcreteProblem(bool answer, vector<T> &&data, boost::optional<int> expectedValue)
-      : mAnswer{ answer }, mData{ data }, mExpected{ expectedValue } {}
   virtual ~ConcreteProblem() {}
 
 public:
-  bool getAnswer() const override { return mAnswer; }
-  boost::optional<size_t> getExpectedValue() const override {
-    return mExpected;
-  }
-  size_t size() const override { return mDdata.size(); }
-  template <class T> const vector<T> &getData() const { return mData; }
+    void init(bool answer, vector<T> &&data, const boost::optional<int>& expectedValue)
+    {
+        mAnswer = answer;
+        mData = data;
+        mExpected = expectedValue;
+    }
+
+    bool getAnswer() const override { return mAnswer; }
+    boost::optional<size_t> getExpectedValue() const override {
+      return mExpected;
+    }
+    size_t size() const override { return mData.size(); }
+    const vector<T> &getData() const { return mData; }
 
 private:
   bool mAnswer;
@@ -68,13 +72,24 @@ private:
   vector<T> mData;
 };
 
+template <class T> const vector<T> &BaseProblem::getData() const {
+    return dynamic_cast<const ConcreteProblem<T>&>(*this).getData();
+}
+
+template <class T> void BaseProblem::init(bool answer, vector<T> &&data, 
+                                          const boost::optional<int>& expectedValue) {
+    return dynamic_cast<const ConcreteProblem<T>&>(*this).init();
+}
+
 class ProblemContainer {
 public:
   ProblemContainer() { mProblems.reserve(ProblemType::NB_ELEMS); }
 
   template <class T>
-  void addProblem(ProblemType type, bool answer, vector<T> &&data) {
-    mProblems[type].emplace_back(answer, data);
+  void addProblem(ProblemType type, bool answer, vector<T> &&data, const boost::optional<int>& expectedValue) {
+    auto prob = std::make_unique<ConcreteProblem<T>>();
+    prob->init(answer, std::move(data), expectedValue);
+    mProblems[type].push_back(std::move(prob));
     ++mGlobalSize;
   }
 
@@ -277,6 +292,7 @@ void readProblem(const string &name, ProblemContainer &problems) {
   file.seekg(0, file.beg);
   T tempDataType;
   int tempInt;
+  int size;
   boost::optional<int> expectedValue = boost::none;
 
   // Read problem set
@@ -289,6 +305,7 @@ void readProblem(const string &name, ProblemContainer &problems) {
       // Read single problem size
       file.read((char *)&tempInt, sizeof(tempInt));
       length -= sizeof(tempInt);
+      size = tempInt;
 
       // Read the expected value if the problem uses one
       if (flag > 3) {
@@ -299,13 +316,13 @@ void readProblem(const string &name, ProblemContainer &problems) {
 
       // Read the problem data
       vector<T> problemData;
-      maze.reserve(tempInt);
+      problemData.reserve(tempInt);
       for (int j = 0; j < size; ++j) {
         file.read((char *)&tempDataType, sizeof(tempDataType));
         length -= sizeof(tempDataType);
         problemData.push_back(tempDataType);
       }
-      problems.addProblem(flag, flag & (1 << i), problemData, expectedValue);
+      problems.addProblem(static_cast<ProblemType>(flag), flag & (1 << i), std::move(problemData), expectedValue);
     }
   }
 }
