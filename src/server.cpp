@@ -19,15 +19,16 @@
 #include <random>
 #include <thread>
 
-using namespace std;
+#include <filesystem>
+
 using boost::asio::ip::tcp;
 
 enum ProblemType {
   MAZE,
   SUDOKU,
   TREE,
-  ARRAY,
   PASSWORD,
+  ARRAY,
   RLE,
 
   NB_ELEMS
@@ -38,13 +39,13 @@ public:
   virtual ~BaseProblem() {}
 
 public:
-  template <class T> void init(bool answer, vector<T> &&data, const boost::optional<int>& expectedValue);
+  template <class T> void init(bool answer, std::vector<T> &&data, const boost::optional<int>& expectedValue);
 
   virtual bool getAnswer() const = 0;
   virtual boost::optional<size_t> getExpectedValue() const = 0;
   virtual size_t size() const = 0;
 
-  template <class T> const vector<T> &getData() const;
+  template <class T> const std::vector<T> &getData() const;
 };
 
 template <class T> class ConcreteProblem : public BaseProblem {
@@ -52,7 +53,7 @@ public:
   virtual ~ConcreteProblem() {}
 
 public:
-    void init(bool answer, vector<T> &&data, const boost::optional<int>& expectedValue)
+    void init(bool answer, std::vector<T> &&data, const boost::optional<int>& expectedValue)
     {
         mAnswer = answer;
         mData = data;
@@ -64,29 +65,29 @@ public:
       return mExpected;
     }
     size_t size() const override { return mData.size(); }
-    const vector<T> &getData() const { return mData; }
+    const std::vector<T> &getData() const { return mData; }
 
 private:
   bool mAnswer;
   boost::optional<size_t> mExpected;
-  vector<T> mData;
+  std::vector<T> mData;
 };
 
-template <class T> const vector<T> &BaseProblem::getData() const {
+template <class T> const std::vector<T> &BaseProblem::getData() const {
     return dynamic_cast<const ConcreteProblem<T>&>(*this).getData();
 }
 
-template <class T> void BaseProblem::init(bool answer, vector<T> &&data, 
+template <class T> void BaseProblem::init(bool answer, std::vector<T> &&data,
                                           const boost::optional<int>& expectedValue) {
     return dynamic_cast<const ConcreteProblem<T>&>(*this).init();
 }
 
 class ProblemContainer {
 public:
-  ProblemContainer() { mProblems.reserve(ProblemType::NB_ELEMS); }
+  ProblemContainer() : mProblems{ ProblemType::NB_ELEMS } { }
 
   template <class T>
-  void addProblem(ProblemType type, bool answer, vector<T> &&data, const boost::optional<int>& expectedValue) {
+  void addProblem(ProblemType type, bool answer, std::vector<T> &&data, const boost::optional<int>& expectedValue) {
     auto prob = std::make_unique<ConcreteProblem<T>>();
     prob->init(answer, std::move(data), expectedValue);
     mProblems[type].push_back(std::move(prob));
@@ -102,15 +103,15 @@ public:
   size_t getGlobalSize() const { return mGlobalSize; }
 
 private:
-  vector<vector<unique_ptr<BaseProblem>>> mProblems;
+  std::vector<std::vector<std::unique_ptr<BaseProblem>>> mProblems;
   size_t mGlobalSize;
 };
 
-atomic<int> score;
+std::atomic<int> score;
 ProblemContainer problems;
 boost::array<bool, 4> answers;
-atomic<int> problemScore;
-atomic<bool> expired;
+std::atomic<int> problemScore;
+std::atomic<bool> expired;
 
 std::random_device rd;
 std::default_random_engine e1(rd());
@@ -152,13 +153,13 @@ private:
 
   void onDataReceived(const boost::system::error_code &ec) {
     if (ec) {
-      cout << "I f****** quit !!!" << endl
+        std::cout << "I f****** quit !!!" << std::endl
            << "Oh btw, network error, client crashed, connection reset, "
               "armagueddon, 9/11 or somethin'...."
-           << endl;
+           << std::endl;
       stop();
       // throw exception("bye bye !");
-      throw exception();
+      throw std::exception();
       return;
     }
 
@@ -169,21 +170,21 @@ private:
     for (int i = 0; i < 4; ++i) {
       if (mReadMessage[i] != answers[i]) {
         score -= problemScore;
-        cout << "YOU'RE WRONG !!!! -" << problemScore << endl;
+        std::cout << "YOU'RE WRONG !!!! -" << problemScore << std::endl;
         sendData();
         readData();
         return;
       }
     }
     score += problemScore * 2;
-    cout << "well alright... +" << problemScore * 2 << endl;
+    std::cout << "well alright... +" << problemScore * 2 << std::endl;
     sendData();
     readData();
   }
 
   void sendData() {
     size_t dataSize;
-    vector<boost::asio::const_buffer> bufs;
+    std::vector<boost::asio::const_buffer> bufs;
 
     int next = uniform_dist(e1);
     bufs.push_back(boost::asio::buffer(&next, sizeof(next)));
@@ -231,18 +232,18 @@ private:
   void onDataTimerExpired(const boost::system::error_code &ec,
                           boost::asio::deadline_timer *) {
     if (ec == boost::asio::error::operation_aborted) {
-      cout << "Abort" << endl;
+        std::cout << "Abort" << std::endl;
       return;
     }
 
-    cout << "Awww.... too slow -" << problemScore << endl;
+    std::cout << "Awww.... too slow -" << problemScore << std::endl;
     score -= problemScore;
     sendData();
   }
 
   void handleWrite(const boost::system::error_code & /*error*/,
                    size_t /*bytes_transferred*/) {
-    cout << "You have " << score << " points, sending new problem" << endl;
+      std::cout << "You have " << score << " points, sending new problem" << std::endl;
   }
 
 private:
@@ -284,8 +285,8 @@ private:
 };
 
 template <class T>
-void readProblem(const string &name, ProblemContainer &problems) {
-  ifstream file(name, ios::in | ios::binary);
+void readProblem(const std::string &name, ProblemType type, ProblemContainer &problems) {
+  std::ifstream file(name, std::ios::in | std::ios::binary);
 
   file.seekg(0, file.end);
   int length = file.tellg();
@@ -300,6 +301,14 @@ void readProblem(const string &name, ProblemContainer &problems) {
     // Read the flag
     unsigned char flag = file.get();
     --length;
+
+    // Read the expected value if this is a RLE problem
+    if (type == RLE) {
+        file.read((char *)&tempInt, sizeof(tempInt));
+        length -= sizeof(tempInt);
+        expectedValue = tempInt;
+    }
+
     // Read the 4 problems
     for (int i = 0; i < 4; ++i) {
       // Read single problem size
@@ -307,36 +316,36 @@ void readProblem(const string &name, ProblemContainer &problems) {
       length -= sizeof(tempInt);
       size = tempInt;
 
-      // Read the expected value if the problem uses one
-      if (flag > 3) {
+      // Read the expected value if this is an array problem
+      if (type == ARRAY) {
         file.read((char *)&tempInt, sizeof(tempInt));
         length -= sizeof(tempInt);
         expectedValue = tempInt;
+        --size;
       }
 
       // Read the problem data
-      vector<T> problemData;
+      std::vector<T> problemData;
       problemData.reserve(tempInt);
       for (int j = 0; j < size; ++j) {
         file.read((char *)&tempDataType, sizeof(tempDataType));
         length -= sizeof(tempDataType);
         problemData.push_back(tempDataType);
       }
-      problems.addProblem(static_cast<ProblemType>(flag), flag & (1 << i), std::move(problemData), expectedValue);
+      problems.addProblem(type, flag & (1 << i), std::move(problemData), expectedValue);
     }
   }
 }
 
 int main(int argc, char **argv) {
-  cout << argv[1] << endl;
-  readProblem<int>(argc > 1 ? argv[1] : "maze_small.bin", problems);
-  readProblem<int>(argc > 2 ? argv[2] : "sudoku_small.bin", problems);
-  readProblem<int>(argc > 3 ? argv[3] : "array_small.bin", problems);
-  readProblem<char>(argc > 4 ? argv[4] : "password_small.bin", problems);
-  readProblem<int>(argc > 5 ? argv[5] : "tree_small.bin", problems);
-  readProblem<char>(argc > 6 ? argv[6] : "RLE_small.bin", problems);
+  readProblem<int>(argc > 1 ? argv[1] : "maze_small.bin", MAZE, problems);
+  readProblem<int>(argc > 2 ? argv[2] : "sudoku_small.bin", SUDOKU, problems);
+  readProblem<int>(argc > 3 ? argv[3] : "array_small.bin", ARRAY, problems);
+  readProblem<char>(argc > 4 ? argv[4] : "password_small.bin", PASSWORD, problems);
+  readProblem<int>(argc > 5 ? argv[5] : "tree_small.bin", TREE, problems);
+  readProblem<char>(argc > 6 ? argv[6] : "RLE_small.bin", RLE, problems);
 
-  cout << problems.getGlobalSize() << " problems loaded" << endl;
+  std::cout << problems.getGlobalSize() << " problems loaded" << std::endl;
 
   try {
     boost::asio::io_service IOService;
@@ -346,15 +355,15 @@ int main(int argc, char **argv) {
       for (;;) {
         for (int t = 0; t < 5; ++t) {
           std::cout << "0xD ";
-          this_thread::sleep_for(chrono::milliseconds(200));
+          std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
         std::cout << "\t" << go_away[uniform_dist2(e1)] << "\t";
         for (int t = 0; t < 7; ++t) {
           std::cout << " 0xD";
-          this_thread::sleep_for(chrono::milliseconds(200));
+          std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
-        std::cout << endl;
-        this_thread::sleep_for(chrono::milliseconds(2000));
+        std::cout << std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2000));
       }
     } else if (bool_dist1(e1)) {
       std::cout << base64_decode(welcome) << std::endl;
@@ -367,7 +376,7 @@ int main(int argc, char **argv) {
     std::cerr << e.what() << std::endl;
   }
   for (int i = 0; i < 5; ++i)
-    cout << "FINAL SCORE " << score << endl;
+      std::cout << "FINAL SCORE " << score << std::endl;
 
   return 0;
 }
