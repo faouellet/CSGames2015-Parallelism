@@ -8,7 +8,7 @@ data_folder = "data/"
 bin_folder = "src/"
 
 # On Windows, we use the Release executables if possible
-if sys.platform is "win32":
+if sys.platform == "win32":
     if os.path.isdir(bin_folder + "Release/"):
         bin_folder += "Release/"
     else:
@@ -21,8 +21,8 @@ test_problems = [ "maze_test.bin", "sudoku_test.bin", "array_test.bin", "passwor
 test_problems = [ data_folder + s for s in test_problems ]
 
 def start_comp(data):  
-    Popen([bin_folder + "\"Server " + " ".join(data) + "\""], stderr=PIPE, stdout=PIPE, creationflags=CREATE_NEW_CONSOLE)
-    Popen([bin_folder + "\"Client localhost\""], stderr=PIPE, stdout=PIPE, creationflags=CREATE_NEW_CONSOLE)
+    Popen([bin_folder + "Server", " ".join(data)], stderr=PIPE, stdout=PIPE, creationflags=CREATE_NEW_CONSOLE)
+    Popen([bin_folder + "Client",  "localhost"], stderr=PIPE, stdout=PIPE, creationflags=CREATE_NEW_CONSOLE)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Argument for the competition")
