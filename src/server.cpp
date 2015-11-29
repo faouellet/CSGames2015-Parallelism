@@ -77,7 +77,7 @@ template <class T> const std::vector<T> &BaseProblem::getData() const {
 
 template <class T> void BaseProblem::init(bool answer, std::vector<T> &&data,
                                           const boost::optional<int>& expectedValue) {
-    return dynamic_cast<const ConcreteProblem<T>&>(*this).init();
+    return dynamic_cast<const ConcreteProblem<T>&>(*this).init(answer, data, expectedValue);
 }
 
 class ProblemContainer {
