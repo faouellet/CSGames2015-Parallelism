@@ -1,6 +1,7 @@
 ﻿import argparse
 import os
 import sys
+import time
 
 from subprocess import *
 
@@ -21,8 +22,17 @@ test_problems = [ "maze_test.bin", "sudoku_test.bin", "array_test.bin", "passwor
 test_problems = [ data_folder + s for s in test_problems ]
 
 def start_comp(data):  
-    Popen([bin_folder + "Server", " ".join(data)], stderr=PIPE, stdout=PIPE, creationflags=CREATE_NEW_CONSOLE)
-    Popen([bin_folder + "Client",  "localhost"], stderr=PIPE, stdout=PIPE, creationflags=CREATE_NEW_CONSOLE)
+    if sys.platform == "win32":
+        Popen([bin_folder + "Server", " ".join(data)], stderr=PIPE, stdout=PIPE, creationflags=CREATE_NEW_CONSOLE)
+    else:
+        Popen(["gnome-terminal -e " + bin_folder + "\"Server " + " ".join(data) + "\""], stderr=PIPE, stdout=PIPE, shell=True)
+
+    time.sleep(2)
+
+    if sys.platform == "win32":
+        Popen([bin_folder + "Client",  "localhost"], stderr=PIPE, stdout=PIPE, creationflags=CREATE_NEW_CONSOLE)
+    else:
+        Popen(["gnome-terminal -e " + bin_folder + "\"Client localhost\""], stderr=PIPE, stdout=PIPE, shell=True)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Argument for the competition")
