@@ -153,10 +153,9 @@ private:
     if (ec) {
         std::cout << "I f****** quit !!!" << std::endl
            << "Oh btw, network error, client crashed, connection reset, "
-              "armagueddon, 9/11 or somethin'...."
+              "armaggeddon, 9/11 or somethin'...."
            << std::endl;
       stop();
-      // throw exception("bye bye !");
       throw std::exception();
       return;
     }
@@ -188,7 +187,7 @@ private:
     bufs.push_back(boost::asio::buffer(&next, sizeof(next)));
     problemScore = next < 3 ? 2 : 1;
     std::uniform_int_distribution<int> problemIdxDist(
-        0, problems.getProblemSize(static_cast<ProblemType>(next)));
+        0, problems.getProblemSize(static_cast<ProblemType>(next)) - 1);
 
     for (int i = 0; i < 4; ++i) {
       auto problem = problems.getProblem(static_cast<ProblemType>(next),
@@ -230,12 +229,13 @@ private:
   void onDataTimerExpired(const boost::system::error_code &ec,
                           boost::asio::deadline_timer *) {
     if (ec == boost::asio::error::operation_aborted) {
-        std::cout << "Abort" << std::endl;
-      return;
+        std::cout << "Received data before deadline" << std::endl;
     }
-
-    std::cout << "Awww.... too slow -" << problemScore << std::endl;
-    score -= problemScore;
+    else
+    {
+        std::cout << "Awww.... too slow -" << problemScore << std::endl;
+        score -= problemScore;
+    }
     sendData();
   }
 
