@@ -19,8 +19,6 @@
 #include <random>
 #include <thread>
 
-#include <filesystem>
-
 using boost::asio::ip::tcp;
 
 enum ProblemType {
