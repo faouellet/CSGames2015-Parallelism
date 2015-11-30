@@ -25,8 +25,8 @@ enum ProblemType {
   MAZE,
   SUDOKU,
   TREE,
-  PASSWORD,
   ARRAY,
+  PASSWORD,
   RLE,
 
   NB_ELEMS
@@ -113,7 +113,7 @@ std::atomic<bool> expired;
 
 std::random_device rd;
 std::default_random_engine e1(rd());
-std::uniform_int_distribution<int> uniform_dist(0, ProblemType::NB_ELEMS);
+std::uniform_int_distribution<int> uniform_dist(0, ProblemType::NB_ELEMS - 1);
 std::uniform_int_distribution<int> uniform_dist2(0, 13);
 std::bernoulli_distribution bool_dist1(0.2);
 std::bernoulli_distribution bool_dist2(0.01);
@@ -160,21 +160,23 @@ private:
       return;
     }
 
-    mTimer.expires_from_now(boost::posix_time::seconds(5));
-    mTimer.async_wait(boost::bind(&TCPConnection::onDataTimerExpired,
-                                  shared_from_this(),
-                                  boost::asio::placeholders::error, &mTimer));
+    bool answersAllCorrect = true;
+
     for (int i = 0; i < 4; ++i) {
       if (mReadMessage[i] != answers[i]) {
-        score -= problemScore;
-        std::cout << "YOU'RE WRONG !!!! -" << problemScore << std::endl;
-        sendData();
-        readData();
-        return;
+        answersAllCorrect = false;
+        break;
       }
     }
-    score += problemScore * 2;
-    std::cout << "well alright... +" << problemScore * 2 << std::endl;
+
+    if (answersAllCorrect) {
+      score += problemScore * 2;
+      std::cout << "well alright... +" << problemScore * 2 << std::endl;
+    } else {
+      score -= problemScore;
+      std::cout << "YOU'RE WRONG !!!! -" << problemScore << std::endl;
+    }
+    
     sendData();
     readData();
   }
@@ -189,6 +191,7 @@ private:
     std::uniform_int_distribution<int> problemIdxDist(
         0, problems.getProblemSize(static_cast<ProblemType>(next)) - 1);
 
+    // Prepare 4 problems to send to a client
     for (int i = 0; i < 4; ++i) {
       auto problem = problems.getProblem(static_cast<ProblemType>(next),
                                          problemIdxDist(e1));
@@ -202,7 +205,7 @@ private:
       dataSize = problem->size();
       bufs.push_back(boost::asio::buffer(&dataSize, sizeof(dataSize)));
 
-      if (next < 3) {
+      if (next < PASSWORD) {
         bufs.push_back(boost::asio::buffer(
             reinterpret_cast<const char *>(&problem->getData<int>()),
             dataSize * sizeof(int)));
@@ -212,31 +215,29 @@ private:
             dataSize * sizeof(char)));
       }
       answers[i % 4] = problem->getAnswer();
-
-      boost::asio::async_write(
-          mSocket, bufs,
-          boost::bind(&TCPConnection::handleWrite, shared_from_this(),
-                      boost::asio::placeholders::error,
-                      boost::asio::placeholders::bytes_transferred));
-
-      mTimer.expires_from_now(boost::posix_time::seconds(5));
-      mTimer.async_wait(boost::bind(&TCPConnection::onDataTimerExpired,
-                                    shared_from_this(),
-                                    boost::asio::placeholders::error, &mTimer));
     }
+
+    // Send the problems to a client
+    boost::asio::async_write(
+        mSocket, bufs,
+        boost::bind(&TCPConnection::handleWrite, shared_from_this(),
+            boost::asio::placeholders::error,
+            boost::asio::placeholders::bytes_transferred));
+
+    // Wait 5 seconds at most for an answer, before sending the next batch of problems
+    mTimer.expires_from_now(boost::posix_time::seconds(5));
+    mTimer.async_wait(boost::bind(&TCPConnection::onDataTimerExpired,
+        shared_from_this(),
+        boost::asio::placeholders::error, &mTimer));
   }
 
   void onDataTimerExpired(const boost::system::error_code &ec,
-                          boost::asio::deadline_timer *) {
-    if (ec == boost::asio::error::operation_aborted) {
-        std::cout << "Received data before deadline" << std::endl;
-    }
-    else
-    {
+                          boost::asio::deadline_timer * deadline) {
+    if (!ec && (deadline->expires_at() <= boost::asio::deadline_timer::traits_type::now())) {
         std::cout << "Awww.... too slow -" << problemScore << std::endl;
         score -= problemScore;
+        sendData();
     }
-    sendData();
   }
 
   void handleWrite(const boost::system::error_code & /*error*/,
@@ -336,12 +337,12 @@ void readProblem(const std::string &name, ProblemType type, ProblemContainer &pr
 }
 
 int main(int argc, char **argv) {
-  readProblem<int>(argc > 1 ? argv[1] : "maze_small.bin", MAZE, problems);
-  readProblem<int>(argc > 2 ? argv[2] : "sudoku_small.bin", SUDOKU, problems);
-  readProblem<int>(argc > 3 ? argv[3] : "array_small.bin", ARRAY, problems);
-  readProblem<char>(argc > 4 ? argv[4] : "password_small.bin", PASSWORD, problems);
-  readProblem<int>(argc > 5 ? argv[5] : "tree_small.bin", TREE, problems);
-  readProblem<char>(argc > 6 ? argv[6] : "RLE_small.bin", RLE, problems);
+  readProblem<int>(argc > 1 ? argv[1]  : "maze_small.bin",      MAZE,       problems);
+  readProblem<int>(argc > 2 ? argv[2]  : "sudoku_small.bin",    SUDOKU,     problems);
+  readProblem<int>(argc > 3 ? argv[3]  : "array_small.bin",     ARRAY,      problems);
+  readProblem<int>(argc > 5 ? argv[5]  : "tree_small.bin",      TREE,       problems);
+  readProblem<char>(argc > 4 ? argv[4] : "password_small.bin",  PASSWORD,   problems);
+  readProblem<char>(argc > 6 ? argv[6] : "RLE_small.bin",       RLE,        problems);
 
   std::cout << problems.getGlobalSize() << " problems loaded" << std::endl;
 
