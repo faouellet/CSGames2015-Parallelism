@@ -1,7 +1,9 @@
-#include <chrono>
+#include <algorithm>
 #include <iostream>
 #include <random>
 #include <thread>
+#include <vector>
+
 #include <boost/array.hpp>
 #include <boost/asio.hpp>
 
@@ -21,7 +23,38 @@ std::random_device rd;
 std::default_random_engine e1(rd());
 std::bernoulli_distribution uniform_dist(0.5);
 
-boost::array<bool, 4> handleMazeProblem(tcp::socket& socket)
+template <class T>
+using Problems = boost::array<std::vector<T>, 4>;
+
+template <class T>
+void getProblems(tcp::socket& socket, Problems<T>& data, boost::array<int, 4>& expectedValues)
+{
+    // Clean up
+    std::fill(expectedValues.begin(), expectedValues.end(), 0);
+    data.clear();
+
+    size_t problemSize;
+    for (size_t i = 0; i < 4; i++)
+    {
+        // Read a problem size
+        socket.read_some(boost::asio::buffer(buf, 4), error);
+        problemSize = buf.front();
+
+        // Read an expected value
+        if ((problemType == ARRAY) || (problemType == RLE))
+        {
+            socket.read_some(boost::asio::buffer(buf, 4), error);
+            expectedValues[i] = buf.front();
+        }
+
+        // Read a problem data
+        socket.read_some(boost::asio::buffer(buf, 4), error);
+        data.reserve(problemSize);
+        socket.read_some(data, error);
+    }
+}
+
+boost::array<bool, 4> handleMazeProblem(const Problems<int>& mazes)
 {
     boost::array<bool, 4> answer_buf;
 
@@ -32,7 +65,7 @@ boost::array<bool, 4> handleMazeProblem(tcp::socket& socket)
     return answer_buf;
 }
 
-boost::array<bool, 4> handleSudokuProblem(tcp::socket& socket)
+boost::array<bool, 4> handleSudokuProblem(const Problems<int>& sudokus)
 {
     boost::array<bool, 4> answer_buf;
 
@@ -43,7 +76,7 @@ boost::array<bool, 4> handleSudokuProblem(tcp::socket& socket)
     return answer_buf;
 }
 
-boost::array<bool, 4> handleTreeProblem(tcp::socket& socket)
+boost::array<bool, 4> handleTreeProblem(const Problems<int>& trees)
 {
     boost::array<bool, 4> answer_buf;
 
@@ -54,7 +87,7 @@ boost::array<bool, 4> handleTreeProblem(tcp::socket& socket)
     return answer_buf;
 }
 
-boost::array<bool, 4> handleArrayProblem(tcp::socket& socket)
+boost::array<bool, 4> handleArrayProblem(const Problems<int>& arrays, const boost::array<int, 4>& expectedValues)
 {
     boost::array<bool, 4> answer_buf;
 
@@ -65,7 +98,7 @@ boost::array<bool, 4> handleArrayProblem(tcp::socket& socket)
     return answer_buf;
 }
 
-boost::array<bool, 4> handlePasswordProblem(tcp::socket& socket)
+boost::array<bool, 4> handlePasswordProblem(const Problems<char>& passwords)
 {
     boost::array<bool, 4> answer_buf;
 
@@ -76,7 +109,7 @@ boost::array<bool, 4> handlePasswordProblem(tcp::socket& socket)
     return answer_buf;
 }
 
-boost::array<bool, 4> handleRLEProblem(tcp::socket& socket)
+boost::array<bool, 4> handleRLEProblem(const Problems<char>& rles, const boost::array<int, 4>& expectedValues)
 {
     boost::array<bool, 4> answer_buf;
 
@@ -105,41 +138,49 @@ int main(int argc, char *argv[]) {
     boost::asio::connect(socket, endpoint_iterator);
 
     for (;;) {
-      // Single integer (32 bits) buffer to read a single byte from the server
-      boost::array<int, 1> buf;
+      ProblemType problemType;
+      boost::array<int, 4> expectedValues;
+      Problems<int> iProblems;
+      Problems<char> sProblems;
+
       boost::system::error_code error;
+      boost::array<int, 1> buf;
 
       // Read the problem type
-      size_t problemType = socket.read_some(boost::asio::buffer(buf, 4), error);
-      
+      socket.read_some(boost::asio::buffer(buf, 4), error);
+      size_t problemType = buf.front();
+
       // Check for error
       if (error == boost::asio::error::eof)
           break; // Connection closed cleanly by peer.
       else if (error)
           throw boost::system::system_error(error); // Some other error.
 
-      std::cout << "Received: " << problemType << std::endl;
+      if (problemType < PASSWORD)
+          getProblems<int>(socket, iProblems, expectedValues);
+      else
+          getProblems<char>(socket, sProblems, expectedValues);
 
       boost::array<bool, 4> answer_buf;
       switch (problemType)
       {
       case MAZE:
-          answer_buf = handleMazeProblem(socket);
+          answer_buf = handleMazeProblem(iProblems);
           break;
       case SUDOKU:
-          answer_buf = handleSudokuProblem(socket);
+          answer_buf = handleSudokuProblem(iProblems);
           break;
       case TREE:
-          answer_buf = handleTreeProblem(socket);
+          answer_buf = handleTreeProblem(iProblems);
           break;
       case ARRAY:
-          answer_buf = handleArrayProblem(socket);
+          answer_buf = handleArrayProblem(iProblems, expectedValues);
           break;
       case PASSWORD:
-          answer_buf = handlePasswordProblem(socket);
+          answer_buf = handlePasswordProblem(sProblems);
           break;
       case RLE:
-          answer_buf = handleRLEProblem(socket);
+          answer_buf = handleRLEProblem(sProblems, expectedValues);
           break;
       }
       
