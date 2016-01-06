@@ -1,5 +1,11 @@
 # Parallelism challenge of the 2015 edition of the CS Games
 
+## Folders structure
+- *data*: Test and evaluation data to be acquired by the server at start up.
+- *docs*: English and French version of the original challenge description.
+- *old*: Old version of the challenge. For historic purposes only.
+- *src*: Challenge to be completed.
+
 ## Requirements
 To compile, you need the following to be installed on your system
 - Boost
