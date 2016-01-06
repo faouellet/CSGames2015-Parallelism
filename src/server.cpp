@@ -40,7 +40,7 @@ public:
   template <class T> void init(bool answer, std::vector<T> &&data, const boost::optional<int>& expectedValue);
 
   virtual bool getAnswer() const = 0;
-  virtual boost::optional<size_t> getExpectedValue() const = 0;
+  virtual boost::optional<unsigned> getExpectedValue() const = 0;
   virtual size_t size() const = 0;
 
   template <class T> const std::vector<T> &getData() const;
@@ -59,7 +59,7 @@ public:
     }
 
     bool getAnswer() const override { return mAnswer; }
-    boost::optional<size_t> getExpectedValue() const override {
+    boost::optional<unsigned> getExpectedValue() const override {
       return mExpected;
     }
     size_t size() const override { return mData.size(); }
@@ -67,7 +67,7 @@ public:
 
 private:
   bool mAnswer;
-  boost::optional<size_t> mExpected;
+  boost::optional<unsigned> mExpected;
   std::vector<T> mData;
 };
 
@@ -82,7 +82,7 @@ template <class T> void BaseProblem::init(bool answer, std::vector<T> &&data,
 
 class ProblemContainer {
 public:
-  ProblemContainer() : mProblems{ ProblemType::NB_ELEMS } { }
+    ProblemContainer() : mProblems{ ProblemType::NB_ELEMS }, mGlobalSize{ 0 } { }
 
   template <class T>
   void addProblem(ProblemType type, bool answer, std::vector<T> &&data, const boost::optional<int>& expectedValue) {
@@ -177,49 +177,45 @@ private:
       std::cout << "YOU'RE WRONG !!!! -" << problemScore << std::endl;
     }
     
+    mDataBuf.clear();
+
     sendData();
     readData();
   }
 
   void sendData() {
-    size_t dataSize;
-    std::vector<boost::asio::const_buffer> bufs;
-
     int next = uniform_dist(e1);
-    bufs.push_back(boost::asio::buffer(&next, sizeof(next)));
+    mDataBuf.push_back(next);
     problemScore = next < 3 ? 2 : 1;
     std::uniform_int_distribution<int> problemIdxDist(
         0, problems.getProblemSize(static_cast<ProblemType>(next)) - 1);
+
+    std::cout << "ID: " << next << std::endl;
 
     // Prepare 4 problems to send to a client
     for (int i = 0; i < 4; ++i) {
       auto problem = problems.getProblem(static_cast<ProblemType>(next),
                                          problemIdxDist(e1));
 
-      boost::optional<size_t> expectedValue = problem->getExpectedValue();
-      if (expectedValue) {
-        dataSize = expectedValue.get();
-        bufs.push_back(boost::asio::buffer(&dataSize, sizeof(dataSize)));
-      }
+      boost::optional<unsigned> expectedValue = problem->getExpectedValue();
+      if (expectedValue)
+        mDataBuf.push_back(expectedValue.get());
 
-      dataSize = problem->size();
-      bufs.push_back(boost::asio::buffer(&dataSize, sizeof(dataSize)));
+      mDataBuf.push_back(problem->size());
 
       if (next < PASSWORD) {
-        bufs.push_back(boost::asio::buffer(
-            reinterpret_cast<const char *>(&problem->getData<int>()),
-            dataSize * sizeof(int)));
+        auto& data = problem->getData<int>();
+        mDataBuf.insert(mDataBuf.end(), data.begin(), data.end());
       } else {
-        bufs.push_back(boost::asio::buffer(
-            reinterpret_cast<const char *>(&problem->getData<char>()),
-            dataSize * sizeof(char)));
+        auto& data = problem->getData<char>();
+        mDataBuf.insert(mDataBuf.end(), data.begin(), data.end());
       }
       answers[i % 4] = problem->getAnswer();
     }
 
     // Send the problems to a client
     boost::asio::async_write(
-        mSocket, bufs,
+        mSocket, boost::asio::buffer(mDataBuf, mDataBuf.size() * sizeof(unsigned)),
         boost::bind(&TCPConnection::handleWrite, shared_from_this(),
             boost::asio::placeholders::error,
             boost::asio::placeholders::bytes_transferred));
@@ -236,19 +232,22 @@ private:
     if (!ec && (deadline->expires_at() <= boost::asio::deadline_timer::traits_type::now())) {
         std::cout << "Awww.... too slow -" << problemScore << std::endl;
         score -= problemScore;
+        mDataBuf.clear();
         sendData();
     }
   }
 
   void handleWrite(const boost::system::error_code & /*error*/,
                    size_t /*bytes_transferred*/) {
-      std::cout << "You have " << score << " points, sending new problem" << std::endl;
+      mDataBuf.clear();
+      std::cout << "You have " << score << " points, new problem sent" << std::endl;
   }
 
 private:
   tcp::socket mSocket;
   boost::array<bool, 4> mReadMessage;
   boost::asio::deadline_timer mTimer;
+  std::vector<unsigned> mDataBuf;
 };
 
 class TCPServer {

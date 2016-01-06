@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <iostream>
+#include <numeric>
 #include <random>
 #include <thread>
 #include <vector>
@@ -27,34 +28,41 @@ template <class T>
 using Problems = boost::array<std::vector<T>, 4>;
 
 template <class T>
-void getProblems(tcp::socket& socket, Problems<T>& data, boost::array<int, 4>& expectedValues)
+void getProblems(tcp::socket& socket, unsigned pType, Problems<T>& data, boost::array<unsigned, 4>& expectedValues)
 {
     // Clean up
     std::fill(expectedValues.begin(), expectedValues.end(), 0);
-    data.clear();
+    std::for_each(data.begin(), data.end(), [](std::vector<T>& vec) { vec.clear(); });
 
-    size_t problemSize;
+    unsigned problemSize;
+    boost::array<unsigned, 1> buf;
+
     for (size_t i = 0; i < 4; i++)
     {
-        // Read a problem size
-        socket.read_some(boost::asio::buffer(buf, 4), error);
-        problemSize = buf.front();
+        buf[0] = 0;
 
         // Read an expected value
-        if ((problemType == ARRAY) || (problemType == RLE))
+        if ((pType == ARRAY) || (pType == RLE))
         {
-            socket.read_some(boost::asio::buffer(buf, 4), error);
+            boost::asio::read(socket, boost::asio::buffer(buf, sizeof(unsigned)));
             expectedValues[i] = buf.front();
+            buf[0] = 0;
         }
 
+        // Read a problem size
+        boost::asio::read(socket, boost::asio::buffer(buf, sizeof(unsigned)));
+        problemSize = buf.front();
+        std::vector<unsigned> dataBuf(problemSize);
+
         // Read a problem data
-        socket.read_some(boost::asio::buffer(buf, 4), error);
-        data.reserve(problemSize);
-        socket.read_some(data, error);
+        // NOTE: Everything is transmitted as an unsigned integer from the server side
+        boost::asio::read(socket, boost::asio::buffer(dataBuf, problemSize * sizeof(unsigned)));
+
+        std::copy(dataBuf.begin(), dataBuf.end(), std::back_inserter(data[i]));
     }
 }
 
-boost::array<bool, 4> handleMazeProblem(const Problems<int>& mazes)
+boost::array<bool, 4> handleMazeProblem(const Problems<unsigned>& mazes)
 {
     boost::array<bool, 4> answer_buf;
 
@@ -65,7 +73,7 @@ boost::array<bool, 4> handleMazeProblem(const Problems<int>& mazes)
     return answer_buf;
 }
 
-boost::array<bool, 4> handleSudokuProblem(const Problems<int>& sudokus)
+boost::array<bool, 4> handleSudokuProblem(const Problems<unsigned>& sudokus)
 {
     boost::array<bool, 4> answer_buf;
 
@@ -76,7 +84,7 @@ boost::array<bool, 4> handleSudokuProblem(const Problems<int>& sudokus)
     return answer_buf;
 }
 
-boost::array<bool, 4> handleTreeProblem(const Problems<int>& trees)
+boost::array<bool, 4> handleTreeProblem(const Problems<unsigned>& trees)
 {
     boost::array<bool, 4> answer_buf;
 
@@ -87,7 +95,7 @@ boost::array<bool, 4> handleTreeProblem(const Problems<int>& trees)
     return answer_buf;
 }
 
-boost::array<bool, 4> handleArrayProblem(const Problems<int>& arrays, const boost::array<int, 4>& expectedValues)
+boost::array<bool, 4> handleArrayProblem(const Problems<unsigned>& arrays, const boost::array<unsigned, 4>& expectedValues)
 {
     boost::array<bool, 4> answer_buf;
 
@@ -109,7 +117,7 @@ boost::array<bool, 4> handlePasswordProblem(const Problems<char>& passwords)
     return answer_buf;
 }
 
-boost::array<bool, 4> handleRLEProblem(const Problems<char>& rles, const boost::array<int, 4>& expectedValues)
+boost::array<bool, 4> handleRLEProblem(const Problems<char>& rles, const boost::array<unsigned, 4>& expectedValues)
 {
     boost::array<bool, 4> answer_buf;
 
@@ -132,23 +140,24 @@ int main(int argc, char *argv[]) {
     tcp::resolver resolver(io_service);
     tcp::resolver::query query(argv[1], "22022");
     tcp::resolver::iterator endpoint_iterator = resolver.resolve(query);
-
     tcp::socket socket(io_service);
+
     // Connect Boost TCP Socket
     boost::asio::connect(socket, endpoint_iterator);
 
+    //boost::asio::async_read();
+
     for (;;) {
-      ProblemType problemType;
-      boost::array<int, 4> expectedValues;
-      Problems<int> iProblems;
+      unsigned problemType;
+      boost::array<unsigned, 4> expectedValues;
+      Problems<unsigned > iProblems;
       Problems<char> sProblems;
 
       boost::system::error_code error;
-      boost::array<int, 1> buf;
+      boost::array<unsigned, 1> buf;
 
       // Read the problem type
-      socket.read_some(boost::asio::buffer(buf, 4), error);
-      size_t problemType = buf.front();
+      boost::asio::read(socket, boost::asio::buffer(buf, sizeof(unsigned)), error);
 
       // Check for error
       if (error == boost::asio::error::eof)
@@ -156,10 +165,12 @@ int main(int argc, char *argv[]) {
       else if (error)
           throw boost::system::system_error(error); // Some other error.
 
+      problemType = buf.front();
+      
       if (problemType < PASSWORD)
-          getProblems<int>(socket, iProblems, expectedValues);
+          getProblems<unsigned>(socket, problemType, iProblems, expectedValues);
       else
-          getProblems<char>(socket, sProblems, expectedValues);
+          getProblems<char>(socket, problemType, sProblems, expectedValues);
 
       boost::array<bool, 4> answer_buf;
       switch (problemType)
